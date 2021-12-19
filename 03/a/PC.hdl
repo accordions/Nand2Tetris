@@ -1,0 +1,69 @@
+// This file is part of www.nand2tetris.org
+// and the book "The Elements of Computing Systems"
+// by Nisan and Schocken, MIT Press.
+// File name: projects/03/a/PC.hdl
+
+/**
+ * A 16-bit counter with load and reset control bits.
+ * if      (reset[t] == 1) out[t+1] = 0
+ * else if (load[t] == 1)  out[t+1] = in[t]
+ * else if (inc[t] == 1)   out[t+1] = out[t] + 1  (integer addition)
+ * else                    out[t+1] = out[t]
+ */
+
+CHIP PC {
+    IN in[16],load,inc,reset;
+    OUT out[16];
+
+    PARTS:
+    // Put your code here:
+    
+    //hierarchy of implementation: reset > load > inc
+    
+    // load + inc
+    Inc16(in=regout, out=incout);
+    Mux16(a=regout, b=incout, sel=inc, out=loadzero);
+    Mux16(a=loadzero, b=in, sel=load, out=loadinc); //if load=0 then inc, if load=1 then load
+    
+    // reset: if reset=1, then out=0; reset=0, then out from load + inc
+    Mux16(a=loadinc, b=false, sel=reset, out=resetloadinc);
+    
+    // ctrl bits
+    Or(a=load, b=inc, out=ctrl0);
+    Or(a=ctrl0, b=reset, out=ctrl);
+    Register(in=resetloadinc, load=ctrl, out=regout, out=out);
+}
+    
+/**
+ * Register(in=in, load=load, out=regload); // load new input
+ * Mux16(a=regload, b=false, sel=reset, out=resetout); //reset output 0
+ * Inc16(in=regload, out=addone); //increment output +1
+ * Mux16(a=regload, b=addone, sel=inc, out=incout); //increment output +1
+ * Register(in=incout, load=inc, out=reginc); //increment register for t + 1
+ * Mux4Way16(a=reginc, b=reginc, c=resetout, d=resetout, sel[1]=reset, sel[0]=load, out=out);
+ * Register(in=in, load=load, out=regload); // load new input
+ * Register(in=incout, load=inc, out=reginc); //increment register for t + 1
+ * Register(in=resetout, load=reset, out=regreset); //reset register for t + 1
+ * Mux8Way16(a=regout, b=incout, c=regout, d=regout, e=resetout,
+ * f=resetout, g=resetout, h=resetout, 
+ * sel[2]=reset, sel[1]=load, sel[0]=inc, out=muxout); 
+ * //ctrl-bits: reset, load, inc -- if the load isn't set,a==previous out
+ * Or(a=reset, b=inc, out=dosth); //00=0, 01=1, 10=1, 11=1
+ * Or(a=dosth, b=load, out=ctrl); //00=0, 01=1, 10=1, 11=1
+ * Register(in=muxout, load=ctrl, out=out);
+ * Register(in=incout, load=inc, out=reginc); //increment register for t + 1
+ * Mux8Way16(
+ * a=tloadout, //000 - in
+ * b=taddone, //001 - increment
+ * c=tloadout, //010 - load ~ inc
+ * d=taddone, //011 - load ~ inc
+ * e=tresetout, //100 - reset
+ * f=tresetout, //101 - reset
+ * g=tresetout, //110 - reset & load
+ * h=tresetout, //111 - reset & load
+ * sel[2]=reset,
+ * sel[1]=load,
+ * sel[0]=inc,
+ * out=out,
+ * out=regout);
+ */

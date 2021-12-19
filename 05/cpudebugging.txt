@@ -1,0 +1,61 @@
+// general tips
+can look at CPU.cmp and CPU.out files
+
+// specific cases
+
+DEBUGGING: ALU, C and A instruction handling
+
+cycle 1: 0|011000000|111|001
+A instruction
+011000000 == 12345
+Store AMD
+If D&M > 0 then jump
+
+// if c-instruction choose A & M, instruction 12
+// if a-instruction, just always choose A reg, ignore bit 12
+
+// if a-instruction, ALU, instead of performing operations, just output value, which translated to c-instruction is just A:
+a, c1 - c6
+a==0, c1 - c6 == 110000
+together 0110000
+aluout = 0, should it be 12345 instead?
+
+cycle 1+: 1|11|0|110000|010|000
+yes b/c at the next cycle, the dregister output is expected to be 12345, when I have 0 instead.
+
+------------------------------------------------------------------------
+DEBUGGING: Program Counter jump bits
+
+lightbulb moment: it's still about A/C instruction handling
+
+cycle 6+:
+0000001111101001
+
+cycle 7:
+0000001111101001
+expected pc[15] -- 7; incout = 1; loadout16 0; loadout 0
+actual pc[15] -- 1000; incout = 0; loadout16 -1; loadout 1
+
+------------------------------------------------------------------------
+DEBUGGING: 
+
+cycle 10 +
+cycle 11 0|000000000001110
+expected addressM[15] = 14; from instruction
+actual addressM[15] = 1000
+Part 1:
+- aluout = 1000
+- instruction = 14
+    - muxout = 14
+    - A-register = 1000; but should be 14!
+    // A control bits only matter for C-instruction, if A-instruction, default should be load = 1; Does the same logic apply for D/M control bits? No, probably not.
+
+------------------------------------------------------------------------
+DEBUGGING: 
+
+cycle 16
+DRegister
+expected -1
+actual 1000
+
+if it's A-instruction, default to don't load, load = 0;

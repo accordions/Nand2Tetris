@@ -1,0 +1,191 @@
+// This file is part of www.nand2tetris.org
+// and the book "The Elements of Computing Systems"
+// by Nisan and Schocken, MIT Press.
+// File name: projects/05/CPU.hdl
+
+/**
+ * The Hack CPU (Central Processing unit), consisting of an ALU,
+ * two registers named A and D, and a program counter named PC.
+ * The CPU is designed to fetch and execute instructions written in 
+ * the Hack machine language. In particular, functions as follows:
+ * Executes the inputted instruction according to the Hack machine 
+ * language specification. The D and A in the language specification
+ * refer to CPU-resident registers, while M refers to the external
+ * memory location addressed by A, i.e. to Memory[A]. The inM input 
+ * holds the value of this location. If the current instruction needs 
+ * to write a value to M, the value is placed in outM, the address 
+ * of the target location is placed in the addressM output, and the 
+ * writeM control bit is asserted. (When writeM==0, any value may 
+ * appear in outM). The outM and writeM outputs are combinational: 
+ * they are affected instantaneously by the execution of the current 
+ * instruction. The addressM and pc outputs are clocked: although they 
+ * are affected by the execution of the current instruction, they commit 
+ * to their new values only in the next time step. If reset==1 then the 
+ * CPU jumps to address 0 (i.e. pc is set to 0 in next time step) rather 
+ * than to the address resulting from executing the current instruction. 
+ */
+
+CHIP CPU {
+
+    IN  inM[16],         // M value input  (M = contents of RAM[A])
+        instruction[16], // Instruction for execution
+        reset;           // Signals whether to re-start the current
+                         // program (reset==1) or continue executing
+                         // the current program (reset==0).
+
+    OUT outM[16],        // M value output
+        writeM,          // Write to M? 
+        addressM[15],    // Address in data memory (of M)
+        pc[15];          // address of next instruction
+
+    PARTS:
+    // Put your code here:
+    // --------------- instruction handling / fetch pt 1 / ARegister -------------------//
+    Mux16(a=instruction, b=aluout, sel=instruction[15], out=muxout); 
+    // what is control1? 
+    // Jan 24: conjecture a: instruction or ALU output: Instruction = fetching; ALU output (Memory address) = executing; But Hack is Harvard architecture, so shouldn't this be compartmentalized?
+            // Feb 4: correct this detail isn't important.
+            // inM from Memory is data memory input (execute cycle)
+            // instruction from ROM32K is instruction memory input (fetch cycle)
+            // simultaneous feed is possible since RAM separate from ROM
+    // Jan 24: conjecture b: decode whether if A-instruction or C-instruction, and what to put in the A register.
+    //clocked, addressM needs to be 15 bits
+    // load defaults to 1 if A-instruction, if C-instruction, depends on if A load bit is asserted
+    Mux(a=true, b=instruction[5], sel=instruction[15], out=aregload);
+    ARegister(in=muxout, load=aregload, out=aregout, out[0..14]=addressM);
+    
+    // --------------- instruction handling / fetch pt 2 / DRegister + ALU -------------//
+    Mux(a=false, b=instruction[4], sel=instruction[15], out=dregload);
+    DRegister(in=aluout, load=dregload, out=dregout);
+    
+    // train of thought #1 (instruction[15])
+    // what is control4? select input 2 for ALU: either from A-register or from data memory
+    // is it the same control as A or C instruction? e.g. if A-instruction, use A-register, if C-instruction, use data memory
+    // train of thought #2 (instruction[12])
+    // what's stored in the A-register is the address of location, e.g. @500
+    // what's stored in the inM input is the value of the location, what's inside @500 (?)
+            // Feb 4: correct, since symbolic assembly language @A means to do 3 things:
+            // (1) select A (put value of A in A register)
+            // (2) select ROM[A]
+            // (3) select RAM[A]
+    /** train of thought #3 (debugging)
+     * stuck on clock cycle 9+: C-instruction: 1|11|1|010011|010|000
+     * instruction[12] = 1, which means D-M instead of D-A
+     * instruction[6..11] = 010011, which means D-M
+     */
+    /** debugging cont. 
+     * now stuck at line 4: 1|11|0|110000|010|000
+     * instruction[12] = 0, which means select A (110000) instead of M
+     * DEST = 010, which is D register
+     * JMP = 000, which is no jump
+     * so effect is to select A register and store it in D register -> D=A
+     */
+    
+    // if C-instruction, choose between A & M
+    Mux16(a=aregout, b=inM, sel=instruction[12], out=mux2outc);
+    // If A-instruction, choose A
+    Mux16(a=aregout, b=mux2outc, sel=instruction[15], out=mux2out);
+            // Feb 4: whether something is A or C instruction matters 2x:
+            // (1) what's passed into the A-register: (a) @A or (b) ALU output
+            // (2) what's passed into the ALU:
+            //      (a) @A or 
+            //      (b) ALU output or inM RAM[A] -- depends on C-instruction
+    
+    /* what to feed into the ALU?
+     * if A-instruction (0), then output A register, which translates to 110000
+     * Feb 4: at first confused by 110000, this pattern comes from C-instruction specification
+     *        comp 12 | 11 | 10 | 09 | 08 | 07 | 06
+     *              0 |  1 |  1 |  0 |  0 |  0 |  0 ---> comp = A
+     * if C-instruction (1), use instruction bits directly as ALU control
+     */
+    
+    //set zx, nx, zy, ny, f, no bits
+    Mux(a=true, b=instruction[11], sel=instruction[15], out=zxout);
+    Mux(a=true, b=instruction[10], sel=instruction[15], out=nxout);
+    Mux(a=false, b=instruction[9], sel=instruction[15], out=zyout);
+    Mux(a=false, b=instruction[8], sel=instruction[15], out=nyout);
+    Mux(a=false, b=instruction[7], sel=instruction[15], out=funcout);
+    Mux(a=false, b=instruction[6], sel=instruction[15], out=noout);
+     
+    ALU(x=dregout,
+        y=mux2out,
+        zx=zxout,
+        nx=nxout,
+        zy=zyout,
+        ny=nyout,
+        f=funcout,
+        no=noout,
+        out=outM,
+        out=aluout,
+        zr=zr,
+        ng=ng);
+        
+    // writeM = C-instruction[3], default writeM = false
+    Mux(a=false, b=instruction[3], sel=instruction[15], out=writeM);
+    
+    // --------------- instruction handling / fetch pt 3 / PC --------------------------//
+    // setting load bit using jmp bits (sel) and combinational logic
+    
+    // set values of a - h using zr, ng bits: (1) determine what a - h 1 bit value should be (2) use Mux16 to amplify
+    // a
+    Not(in=true, out=aout);
+    Mux16(a=false, b=true, sel=aout, out=a16out);
+    // b
+    Or(a=zr, b=ng, out=borout);
+    Not(in=borout, out=bout);
+    Mux16(a=false, b=true, sel=bout, out=b16out);
+    // c
+    Not(in=ng, out=cnotout);
+    And(a=zr, b=cnotout, out=cout);
+    Mux16(a=false, b=true, sel=cout, out=c16out);
+    // d
+    Not(in=ng, out=dout);
+    Mux16(a=false, b=true, sel=dout, out=d16out);
+    // e
+    Not(in=zr, out=notzr);
+    Nand(a=notzr, b=ng, out=nandout);
+    Not(in=nandout, out=eout);
+    Mux16(a=false, b=true, sel=eout, out=e16out);
+    // f
+    Not(in=zr, out=fout);
+    Mux16(a=false, b=true, sel=fout, out=f16out);
+    // g
+    Xor(a=zr, b=ng, out=gout);
+    Mux16(a=false, b=true, sel=gout, out=g16out);
+    // h
+    Not(in=false, out=hout);
+    Mux16(a=false, b=true, sel=hout, out=h16out);
+    
+    // select a - h using jmp bits
+    Mux8Way16(a=a16out,
+              b=b16out,
+              c=c16out,
+              d=d16out,
+              e=e16out,
+              f=f16out,
+              g=g16out,
+              h=h16out,
+              sel=instruction[0..2],
+              out=loadout16c);
+              
+    Not16(in=loadout16c, out[0]=incoutc); //reduce from 16 bits to 1 bit
+    Not(in=incoutc, out=loadoutc);
+    
+    // the above handles C-instructions, if A-instructions, always set loadout = 0 and incout = 1
+    Mux(a=false, b=loadoutc, sel=instruction[15], out=loadout);
+    Mux(a=true, b=incoutc, sel=instruction[15], out=incout);
+    
+    // feed bits into PC
+    PC(in=aregout,
+       load=loadout, 
+       inc=incout, 
+       reset=reset, // can reset just be reset?
+       out[0..14]=pc);
+}
+
+// Feb 4: Thoughts on solving this problem
+// - conceptually had to work backwards, i.e. made piecemeal efforts to solve different parts
+// - relied on debugging at times to make forward progress
+// - in hindsight, connected more dots across symbolic assembly language & the CPU architecture
+// - got distracted by the "fetch/execute" and "timed/combinational" concepts which weren't the crux
+// - the real crux is probably separating A-instruction scenario vs. C-instruction scenario and how that impacts every part of the CPU

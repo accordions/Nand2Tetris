@@ -1,0 +1,69 @@
+// This file is part of www.nand2tetris.org
+// and the book "The Elements of Computing Systems"
+// by Nisan and Schocken, MIT Press.
+// File name: projects/05/Memory.hdl
+
+/**
+ * The complete address space of the Hack computer's memory,
+ * including RAM and memory-mapped I/O. 
+ * The chip facilitates read and write operations, as follows:
+ *     Read:  out(t) = Memory[address(t)](t)
+ *     Write: if load(t-1) then Memory[address(t-1)](t) = in(t-1)
+ * In words: the chip always outputs the value stored at the memory 
+ * location specified by address. If load==1, the in value is loaded 
+ * into the memory location specified by address. This value becomes 
+ * available through the out output from the next time step onward.
+ * Address space rules:
+ * Only the upper 16K+8K+1 words of the Memory chip are used. 
+ * Access to address>0x6000 is invalid. Access to any address in 
+ * the range 0x4000-0x5FFF results in accessing the screen memory 
+ * map. Access to address 0x6000 results in accessing the keyboard 
+ * memory map. The behavior in these addresses is described in the 
+ * Screen and Keyboard chip specifications given in the book.
+ */
+
+// Jan 10, 2021
+
+CHIP Memory {
+    IN in[16], load, address[15];
+    OUT out[16];
+    // Steps to problem solving 
+    // Step 1: understand 0x - hexadecimal (screenmap instruction) to binary conversion (address of screenmap)
+    // Step 2: use pattern in address bits 13, 14 and Mux4Way16 to route input to RAM, Screen or Keyboard
+    // Step 3: use pattern in address bit 14 (or 13) and DMux to route load value to RAM or Screen
+    // Process was iterative, e.g. used testing to discover Step 3, understanding DMux vs. Mux outputs, looking at built in chip structures to see that Screen address is a 13 bit value and that Keyboard only produces "out" - i.e. the value input of ASCII 
+    
+    PARTS:
+    // load 0 or 1, depending on both load value and address selected
+    DMux(in=load, sel=address[14], a=memload, b=scrload);
+    
+    // RAM16K - 0..16383 = 0x3FFF
+    RAM16K(in=in, load=memload, address=address[0..13], out=memout);
+    
+    // Screen - 16384..24575 = 0x4000 - 0x5FFF
+    //0x4000 = 4*16^3 = 16384
+    //0x5FFF = 5*16^3 + 15*16^2 + 15*16^1 + 15*16^0 = 20480+3840+240+15 = 24575
+    Screen(in=in, load=scrload, address=address[0..12], out=scrout);
+    
+    // Keyboard - 24576 = 0x6000 = 6*16^3 
+    Keyboard(out=kbdout);
+    
+    // Choose amongst RAM16K, Screen, Keyboard
+    Mux4Way16(a=memout, b=memout, c=scrout, d=kbdout, sel=address[13..14], out=out);
+}
+
+// Feb 3, 2021
+/* crux of problem is to route input to the part of memory specified by address: RAM16K memory, Screen or Keyboard
+ * // Insight #1
+ * 16-bits of data is why hexadecimal memory address makes sense
+ * RAM16K memory = 16 * 1024 = 16384 ------> 0x3FFF = 3*16^3 + 15*16^2 + 15*16+ 15 = 3*2^(4*3) + 15*2^(4*2) + 15*2^4 + 15 --> 2^14
+ * Screen = 16 * 512 = 8192 = (24575 - 16383)
+ * Keyboard = 16 * 256 = 4096 = 16^3
+ * // Insight #2 (from jan)
+ * 15-bit address[0..1..2..3..4..5..6..7..8..9..10..11..12..13..14]
+ * address[14] if == 1 then screen, if == 0 then memory
+ * binary representation of 16384 = log base 2 of 16384 = 14, i.e. 2^14 = 16384
+ * // Insight #3 (from jan)
+ * address[13..14] determined whether screen or keyboard were outputed
+ * 00 or 01 --> memory, 10 --> screen, 11 --> keyboard
+ */
